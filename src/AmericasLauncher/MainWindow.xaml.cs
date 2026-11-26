@@ -436,6 +436,7 @@ public partial class MainWindow : Window
     {
         var isBroken = Selected?.HealthState == RunnerHealthState.Broken;
         InstallButton.IsEnabled = !busy && !isBroken;
+        UpdateAllButton.IsEnabled = !busy;
         LaunchButton.IsEnabled = !busy;
         RunnerBox.IsEnabled = !busy;
         Progress.IsIndeterminate = busy;
@@ -448,6 +449,7 @@ public partial class MainWindow : Window
         LaunchButton.Content = active ? "■  Stop Game" : "▶  Launch Game";
         LaunchButton.IsEnabled = true;   // while active this is the Stop button, so it must stay clickable
         InstallButton.IsEnabled = !active && !isBroken;
+        UpdateAllButton.IsEnabled = !active;
         RunnerBox.IsEnabled = !active;
         Progress.IsIndeterminate = active;
     }
@@ -490,19 +492,35 @@ public partial class MainWindow : Window
         EndLaunch(cts);
     }
 
+    private int _healthCounter;
+
     private async Task CheckAllRunnersHealthAsync()
     {
+        var ticket = ++_healthCounter;   // results of an older check that finishes later are dropped
         var tasks = _profiles.Select(async p =>
         {
             var state = await _runners.CheckHealthAsync(p, _config);
             Dispatcher.Invoke(() =>
             {
+                if (ticket != _healthCounter) return;
                 p.HealthState = state;
                 if (Selected?.Id == p.Id)
                     UpdateRunnerLegendAndButtons(p);
             });
         });
         await Task.WhenAll(tasks);
+        if (ticket == _healthCounter) UpdateUpdateAllButton();
+    }
+
+    /// <summary>
+    /// Update All only appears when at least two installed runners have an update; with one, the yellow card
+    /// and Install / Update already cover it.
+    /// </summary>
+    private void UpdateUpdateAllButton()
+    {
+        var outdated = _profiles.Count(p => p.HealthState == RunnerHealthState.UpdateAvailable);
+        UpdateAllButton.Content = $"Update All ({outdated})";
+        UpdateAllButton.Visibility = outdated >= 2 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void UpdateRunnerLegendAndButtons(RunnerProfile? profile)
@@ -579,6 +597,10 @@ public partial class MainWindow : Window
                 Log("Setup did not finish. Check the messages above.");
             }
 
+            // Refresh this runner's card colour and the Update All count after installing or updating it.
+            profile.HealthState = await _runners.CheckHealthAsync(profile, _config);
+            UpdateRunnerLegendAndButtons(Selected);
+            UpdateUpdateAllButton();
             await RefreshVersionAsync();
         }
         catch (Exception ex)
@@ -588,6 +610,128 @@ public partial class MainWindow : Window
         finally
         {
             SetBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// Updates every installed runner that has a newer version upstream, one after another, with the same
+    /// steps as Install / Update. Runners that are not installed are skipped; a failed one does not stop the rest.
+    /// </summary>
+    private async void UpdateAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_launchCts != null)
+        {
+            Log("Stop the game before updating runners.");
+            return;
+        }
+
+        var installed = _profiles.Where(p => _runners.IsInstalled(p)).ToList();
+        if (installed.Count == 0)
+        {
+            Log("No runners are installed yet. Install one with 'Install / Update' first.");
+            return;
+        }
+
+        var open = installed.Where(RunnerService.IsRunnerProcessRunning).Select(p => p.Name).ToList();
+        if (open.Count > 0)
+        {
+            Log("Close these runners before updating: " + string.Join(", ", open));
+            return;
+        }
+
+        SetBusy(true);
+        _refreshCounter++;   // a version check still in flight must not overwrite the progress shown below
+        try
+        {
+            Log($"=== Update All: checking {installed.Count} installed runner(s) ===");
+            SetStatus("Checking for updates...", Brushes.LightSlateGray);
+
+            var checks = await Task.WhenAll(installed.Select(async p => (
+                Profile: p,
+                Status: await _runners.CheckForUpdateAsync(p),
+                Unbuilt: await _runners.NeedsRebuildAsync(p, _config))));
+            var toUpdate = new List<RunnerProfile>();
+            foreach (var (profile, status, unbuilt) in checks)
+            {
+                switch (status)
+                {
+                    case UpdateStatus.UpdateAvailable:
+                        Log($"  {profile.Name}: update available");
+                        toUpdate.Add(profile);
+                        break;
+                    case UpdateStatus.UpToDate when unbuilt:
+                        Log($"  {profile.Name}: the last build did not finish, building again");
+                        toUpdate.Add(profile);
+                        break;
+                    case UpdateStatus.UpToDate:
+                        Log($"  {profile.Name}: up to date");
+                        break;
+                    default:
+                        Log($"  {profile.Name}: could not check, skipped");
+                        break;
+                }
+            }
+
+            if (toUpdate.Count == 0)
+            {
+                Log("All installed runners are up to date.");
+                await RefreshVersionAsync();   // the status pill describes the selected runner again
+                return;
+            }
+
+            var updated = new List<string>();
+            var unchanged = new List<string>();
+            var failed = new List<string>();
+            for (var i = 0; i < toUpdate.Count; i++)
+            {
+                var profile = toUpdate[i];
+                SetStatus($"Updating {i + 1} of {toUpdate.Count}: {profile.Name}", Brushes.Orange);
+                Log("");
+                Log($"=== Update All {i + 1}/{toUpdate.Count}: {profile.Name} ===");
+
+                var before = await _runners.GetInstalledVersionAsync(profile);
+                var unbuiltBefore = await _runners.NeedsRebuildAsync(profile, _config);
+                bool ok;
+                try
+                {
+                    ok = await _runners.InstallOrUpdateAsync(profile, _config, Log);
+                }
+                catch (Exception ex)
+                {
+                    Log("ERROR: " + ex.Message);
+                    ok = false;
+                }
+
+                var after = ok ? await _runners.GetInstalledVersionAsync(profile) : "";
+                if (!ok)
+                    failed.Add(profile.Name);
+                else if (after == "" || after != before)
+                    updated.Add(profile.Name);
+                else if (unbuiltBefore)
+                    updated.Add(profile.Name + " (rebuilt)");   // same source, but its last build had not finished
+                else
+                    unchanged.Add(profile.Name);   // e.g. a runner that follows a branch other than the default one
+
+                _configService.Save(_config);   // keep each finished runner's version even if a later one fails
+            }
+
+            Log("");
+            Log("=== Update All finished ===");
+            if (updated.Count > 0) Log("Updated: " + string.Join(", ", updated));
+            if (unchanged.Count > 0) Log("Already current: " + string.Join(", ", unchanged));
+            if (failed.Count > 0) Log("Failed: " + string.Join(", ", failed) + " (see the messages above)");
+
+            await CheckAllRunnersHealthAsync();
+            await RefreshVersionAsync();
+        }
+        catch (Exception ex)
+        {
+            Log("ERROR: " + ex.Message);
+        }
+        finally
+        {
+            SetBusy(false);
+            UpdateRunnerLegendAndButtons(Selected);
         }
     }
 

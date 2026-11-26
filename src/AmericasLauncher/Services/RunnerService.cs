@@ -74,8 +74,7 @@ public sealed class RunnerService
         {
             try
             {
-                var path = proc.MainModule?.FileName;
-                if (path != null && string.Equals(Path.GetFullPath(path), exePath, StringComparison.OrdinalIgnoreCase))
+                if (IsStartedFrom(proc, exePath))
                 {
                     proc.Kill(entireProcessTree: true);
                     killed++;
@@ -86,6 +85,31 @@ public sealed class RunnerService
         }
 
         return killed;
+    }
+
+    /// <summary>
+    /// True when a process started from this runner's own built exe is running. Its exe could not be
+    /// replaced by a rebuild while it runs.
+    /// </summary>
+    public static bool IsRunnerProcessRunning(RunnerProfile p)
+    {
+        var exePath = Path.GetFullPath(ExePath(p));
+        var running = false;
+
+        foreach (var proc in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exePath)))
+        {
+            try { running |= IsStartedFrom(proc, exePath); }
+            catch { /* access denied, or the process already exited */ }
+            finally { proc.Dispose(); }
+        }
+
+        return running;
+    }
+
+    private static bool IsStartedFrom(Process proc, string exePath)
+    {
+        var path = proc.MainModule?.FileName;
+        return path != null && string.Equals(Path.GetFullPath(path), exePath, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Short git revision of the installed source, or "" if unknown.</summary>

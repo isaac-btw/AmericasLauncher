@@ -555,6 +555,13 @@
                                     Style="{StaticResource PatriotBlueButton}"
                                     Content="Install / Update"
                                     Click="Install_Click"/>
+                            <Button x:Name="UpdateAllButton"
+                                    Style="{StaticResource PatriotBlueButton}"
+                                    Content="Update All"
+                                    Margin="10,0,0,0"
+                                    Visibility="Collapsed"
+                                    ToolTip="Updates every installed runner that has a new version or whose last build did not finish. Runners that are not installed are skipped."
+                                    Click="UpdateAll_Click"/>
                             <Button x:Name="LaunchButton"
                                     Style="{StaticResource PatriotRedButton}"
                                     Content="▶  Launch Game"
