@@ -494,7 +494,7 @@ public partial class MainWindow : Window
     {
         var tasks = _profiles.Select(async p =>
         {
-            var state = await _runners.CheckHealthAsync(p);
+            var state = await _runners.CheckHealthAsync(p, _config);
             Dispatcher.Invoke(() =>
             {
                 p.HealthState = state;

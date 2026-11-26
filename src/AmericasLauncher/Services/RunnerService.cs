@@ -133,7 +133,12 @@ public sealed class RunnerService
         }
     }
 
-    public async Task<RunnerHealthState> CheckHealthAsync(RunnerProfile p, CancellationToken ct = default)
+    /// <summary>
+    /// The runner's card colour. With <paramref name="config"/>, a runner whose last build did not finish
+    /// counts as needing an update even when its source is current.
+    /// </summary>
+    public async Task<RunnerHealthState> CheckHealthAsync(
+        RunnerProfile p, AppConfig? config = null, CancellationToken ct = default)
     {
         try
         {
@@ -162,6 +167,9 @@ public sealed class RunnerService
             if (local != "" && remote != "" && !string.Equals(local, remote, StringComparison.OrdinalIgnoreCase))
                 return RunnerHealthState.UpdateAvailable;
 
+            if (config != null && await NeedsRebuildAsync(p, config, cts.Token))
+                return RunnerHealthState.UpdateAvailable;
+
             return RunnerHealthState.UpToDate;
         }
         catch
@@ -183,10 +191,8 @@ public sealed class RunnerService
 
         // 2) Source code
         var dir = SourceDir(p);
-        var before = "";
         if (Directory.Exists(Path.Combine(dir, ".git")))
         {
-            before = await GetHeadAsync(dir, ct);
             log("=== Updating source ===");
             if (await ProcessRunner.RunAsync("git", "pull --ff-only", dir, log, ct) != 0)
             {
@@ -206,11 +212,13 @@ public sealed class RunnerService
             }
         }
 
+        // Skip the build only when this exact revision was built successfully before. Comparing with the
+        // revision before the pull is not enough: if a build failed after a pull, the source is already
+        // current but the exe is still the old one, and the build would never be tried again.
         var after = await GetHeadAsync(dir, ct);
-        if (before != "" && before == after && IsInstalled(p))
+        if (IsInstalled(p) && IsBuiltRevision(p, config, after))
         {
             log($"Already up to date ({after}).");
-            config.InstalledVersions[p.Id] = after;
             return true;
         }
 
@@ -236,6 +244,28 @@ public sealed class RunnerService
         config.InstalledVersions[p.Id] = after;
         log($"[ok] {p.Name} is ready ({after}).");
         return true;
+    }
+
+    /// <summary>True when <paramref name="revision"/> is the revision recorded after the last successful build.</summary>
+    private static bool IsBuiltRevision(RunnerProfile p, AppConfig config, string revision)
+    {
+        if (revision == "" || !config.InstalledVersions.TryGetValue(p.Id, out var built) || string.IsNullOrEmpty(built))
+            return false;
+
+        // Short hashes can differ in length (git lengthens them when needed), so compare by prefix.
+        return revision.StartsWith(built, StringComparison.OrdinalIgnoreCase)
+            || built.StartsWith(revision, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// True when the runner is installed but its source is at a revision that was never built successfully,
+    /// e.g. a build failed after the new source had already been pulled.
+    /// </summary>
+    public async Task<bool> NeedsRebuildAsync(RunnerProfile p, AppConfig config, CancellationToken ct = default)
+    {
+        if (!IsInstalled(p)) return false;
+        var head = await GetInstalledVersionAsync(p, ct);
+        return head != "" && !IsBuiltRevision(p, config, head);
     }
 
     private static async Task<string> GetHeadAsync(string dir, CancellationToken ct, bool full = false)
