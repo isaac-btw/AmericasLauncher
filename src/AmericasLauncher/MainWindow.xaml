@@ -806,6 +806,14 @@
                                     Content="▶  Launch Game"
                                     Margin="10,0,0,0"
                                     Click="Launch_Click"/>
+                            <!-- Shown only for runners with a built-in benchmark (runners.json "benchmarkEnv") -->
+                            <Button x:Name="BenchmarkButton"
+                                    Style="{StaticResource PatriotBlueButton}"
+                                    Content="⏱  Benchmark"
+                                    Margin="10,0,0,0"
+                                    Visibility="Collapsed"
+                                    ToolTip="Launches the game with the runner's own built-in benchmark turned on. Follow the runner's benchmark instructions (save to load, how long, where the result is written)."
+                                    Click="Benchmark_Click"/>
                         </StackPanel>
 
                         <TextBlock x:Name="VersionText"

@@ -1006,6 +1006,7 @@ public partial class MainWindow : Window
         UpdateSourceButton.IsEnabled = !busy && !isBroken;
         InstallButton.IsEnabled = !busy && !isBroken;
         LaunchButton.IsEnabled = !busy;
+        BenchmarkButton.IsEnabled = !busy;
         RunnerBox.IsEnabled = !busy;
         Progress.IsIndeterminate = busy;
     }
@@ -1016,6 +1017,7 @@ public partial class MainWindow : Window
         var isBroken = Selected?.HealthState == RunnerHealthState.Broken;
         LaunchButton.Content = active ? "■  Stop Game" : "▶  Launch Game";
         LaunchButton.IsEnabled = true;   // while active this is the Stop button, so it must stay clickable
+        BenchmarkButton.IsEnabled = !active;
         UpdateSourceButton.IsEnabled = !active && !isBroken;
         InstallButton.IsEnabled = !active && !isBroken;
         RunnerBox.IsEnabled = !active;
@@ -1084,6 +1086,7 @@ public partial class MainWindow : Window
 
     private void UpdateRunnerLegendAndButtons(RunnerProfile? profile)
     {
+        BenchmarkButton.Visibility = profile?.HasBenchmark == true ? Visibility.Visible : Visibility.Collapsed;
         if (profile == null)
         {
             RunnerColorLegendText.Text = "Please select a runner";
@@ -1201,7 +1204,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void Launch_Click(object sender, RoutedEventArgs e)
+    private async void Launch_Click(object sender, RoutedEventArgs e) => await StartGame(benchmark: false);
+
+    /// <summary>Launches like "Launch Game" with the selected runner's built-in benchmark turned on.</summary>
+    private async void Benchmark_Click(object sender, RoutedEventArgs e)
+    {
+        if (_launchCts != null) return;   // a game is running: Stop Game is on the Launch button
+        await StartGame(benchmark: true);
+    }
+
+    private async Task StartGame(bool benchmark)
     {
         // The button is "Stop Game" from the first moment of the launch (pipeline included).
         if (_launchCts != null)
@@ -1211,6 +1223,7 @@ public partial class MainWindow : Window
         }
 
         if (Selected is not { } profile) return;
+        if (benchmark && !profile.HasBenchmark) return;
         FlushLaunchOptionsSave();
 
         if (!_runners.IsInstalled(profile))
@@ -1252,7 +1265,8 @@ public partial class MainWindow : Window
                 ct: cts.Token,
                 options: options,
                 seriesS: SeriesSSelected,
-                resolution: SelectedResolution);
+                resolution: SelectedResolution,
+                extraEnv: benchmark ? profile.BenchmarkEnv : null);
 
             // Stop was clicked just as the game process was being started: close it right away.
             if (!ReferenceEquals(_launchCts, cts))

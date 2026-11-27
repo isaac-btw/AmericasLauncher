@@ -76,6 +76,12 @@ public sealed class RunnerProfile : INotifyPropertyChanged
     [JsonIgnore] public bool UsesConsoleEnv => string.Equals(Id, "xcl", StringComparison.OrdinalIgnoreCase);
 
     [JsonPropertyName("notes")] public string? Notes { get; set; }
+    /// <summary>
+    /// Optional: environment variables that turn on the runner's own built-in benchmark. When present, a
+    /// "Benchmark" button launches the game like "Launch Game" with these added (over the user's own launch options).
+    /// </summary>
+    [JsonPropertyName("benchmarkEnv")] public Dictionary<string, string>? BenchmarkEnv { get; set; }
+    [JsonIgnore] public bool HasBenchmark => BenchmarkEnv is { Count: > 0 };
 
     public override string ToString() => Name;
 }

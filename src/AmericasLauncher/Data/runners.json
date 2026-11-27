@@ -128,7 +128,11 @@
       "translate --cache --pipelines --jobs 8 \"{gameFolder}\\shaders.rpf\""
     ],
     "launchArgs": "run \"{gameExe}\" --execute",
-    "notes": "Best with AMD"
+    "notes": "Best with AMD",
+    "benchmarkEnv": {
+      "KLBF_BENCH": "bm-v1",
+      "VICTORY_SKIP_MOVIES": "end"
+    }
   },
   {
   "id": "VIctory-origin",

@@ -119,6 +119,7 @@ Add an entry to `src/AmericasLauncher/Data/runners.json`:
 | `exe` | Built executable, relative to the source folder |
 | `preLaunchArgs` | Optional list of commands run sequentially before `launchArgs` |
 | `launchArgs` | Arguments for the executable (`{gameFolder}` and `{gameExe}` are replaced automatically) |
+| `benchmarkEnv` | Optional: environment variables that turn on the runner's own built-in benchmark. When set, a **Benchmark** button appears next to Launch Game and starts the game with them added. |
 
 ## License
 

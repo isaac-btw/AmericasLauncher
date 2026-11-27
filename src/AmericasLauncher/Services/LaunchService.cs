@@ -16,7 +16,8 @@ public sealed class LaunchService
     public async Task<Process> Launch(
         RunnerProfile p, string gameFolder, string gameExe, Action<string> log,
         bool usePipeline = true, Action? onExited = null, CancellationToken ct = default,
-        RunnerLaunchOptions? options = null, bool seriesS = false, string? resolution = null)
+        RunnerLaunchOptions? options = null, bool seriesS = false, string? resolution = null,
+        IReadOnlyDictionary<string, string>? extraEnv = null)
     {
         var exe = RunnerService.ExePath(p);
         if (!File.Exists(exe)) throw new FileNotFoundException($"{p.Name} is not installed yet.", exe);
@@ -129,6 +130,13 @@ public sealed class LaunchService
             CreateNoWindow = true
         };
         LaunchOptionsService.Apply(psi.Environment, env);
+        // The runner's benchmark variables (Benchmark button), over the user's launch options.
+        if (extraEnv != null)
+            foreach (var (key, value) in extraEnv)
+            {
+                psi.Environment[key] = value;
+                log($"Benchmark: {key}={value}");
+            }
         psi.Environment["AL_EXE"] = exe;
         psi.Environment["AL_ARGS"] = args;
         psi.Environment["AL_LOG"] = GameLogPath;
